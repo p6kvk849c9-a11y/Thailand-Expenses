@@ -446,10 +446,13 @@
   var KEY = "thailand-expenses-v1";
   var RATE_KEY = "thailand-rate-v1";
   var START_KEY = "thailand-start-v1";
+  var CAT_KEY = "thailand-cats-v1";
+  var LEG_KEY = "thailand-legs-v1";
   var DEFAULT_RATE = 11.098;
   var DEFAULT_START = "2026-07-12";
+  var NEW_OPT = "__new__";
 
-  var CATS = [
+  var DEFAULT_CATS = [
     { id: "flights",   name: "Flights",       color: "--c-flights" },
     { id: "stay",      name: "Accommodation", color: "--c-stay" },
     { id: "cash",      name: "Cash out",      color: "--c-cash" },
@@ -459,6 +462,15 @@
     { id: "gear",      name: "Gear",          color: "--c-gear" },
     { id: "other",     name: "Other",         color: "--c-other" }
   ];
+  var PALETTE = ["--c-food", "--c-transport", "--c-stay", "--c-cash",
+                 "--c-gear", "--c-flights", "--c-insurance", "--c-other"];
+  var DEFAULT_LEGS = [
+    { id: "thailand", name: "On the ground" },
+    { id: "transit",  name: "Getting there" }
+  ];
+
+  var CATS = DEFAULT_CATS.slice();
+  var LEGS = DEFAULT_LEGS.slice();
 
   var $ = function (id) { return document.getElementById(id); };
   var items = [];
@@ -466,6 +478,8 @@
   var tripStart = DEFAULT_START;
   var editing = null;
   var entryCur = "thb";
+  var lastCat = "food";
+  var lastLeg = "thailand";
 
   function load() {
     try {
@@ -475,10 +489,37 @@
     } catch (e) { items = []; }
     try { var r = parseFloat(localStorage.getItem(RATE_KEY)); if (r > 0) rate = r; } catch (e) {}
     try { var s = localStorage.getItem(START_KEY); if (s) tripStart = s; } catch (e) {}
+    try { mergeCats(JSON.parse(localStorage.getItem(CAT_KEY) || "[]")); } catch (e) {}
+    try { mergeLegs(JSON.parse(localStorage.getItem(LEG_KEY) || "[]")); } catch (e) {}
   }
+  function mergeCats(list) {
+    if (!Array.isArray(list)) return;
+    list.forEach(function (c) {
+      if (c && c.id && c.name && !catExists(c.id)) {
+        CATS.push({ id: c.id, name: c.name, color: c.color || nextColor(), custom: true });
+      }
+    });
+  }
+  function mergeLegs(list) {
+    if (!Array.isArray(list)) return;
+    list.forEach(function (l) {
+      if (l && l.id && l.name && !legExists(l.id)) {
+        LEGS.push({ id: l.id, name: l.name, custom: true });
+      }
+    });
+  }
+  function catExists(id) { return CATS.some(function (c) { return c.id === id; }); }
+  function legExists(id) { return LEGS.some(function (l) { return l.id === id; }); }
+  function nextColor() { return PALETTE[CATS.length % PALETTE.length]; }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(items)); }
     catch (e) { toast("Couldn't save — storage is full or blocked"); }
+  }
+  function saveCustom() {
+    try {
+      localStorage.setItem(CAT_KEY, JSON.stringify(CATS.filter(function (c) { return c.custom; })));
+      localStorage.setItem(LEG_KEY, JSON.stringify(LEGS.filter(function (l) { return l.custom; })));
+    } catch (e) {}
   }
 
   function ils(n) { return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -487,6 +528,10 @@
   function catOf(id) {
     for (var i = 0; i < CATS.length; i++) if (CATS[i].id === id) return CATS[i];
     return CATS[CATS.length - 1];
+  }
+  function legOf(id) {
+    for (var i = 0; i < LEGS.length; i++) if (LEGS[i].id === id) return LEGS[i];
+    return LEGS[0];
   }
   function dayName(iso) {
     var d = new Date(iso + "T00:00:00");
@@ -584,8 +629,9 @@
 
         var body = document.createElement("span"); body.className = "body";
         var lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = it.label;
-        if (it.leg === "transit") {
-          var chip = document.createElement("span"); chip.className = "chip"; chip.textContent = "transit";
+        if (it.leg && it.leg !== "thailand") {
+          var chip = document.createElement("span"); chip.className = "chip";
+          chip.textContent = it.leg === "transit" ? "transit" : legOf(it.leg).name;
           lbl.appendChild(chip);
         }
         var sub = document.createElement("span"); sub.className = "sub";
@@ -603,14 +649,46 @@
     });
   }
 
-  function fillCats() {
-    var sel = $("cat");
+  function fillSelect(sel, list, newLabel) {
+    var keep = sel.value;
     sel.innerHTML = "";
-    CATS.forEach(function (c) {
-      var o = document.createElement("option");
-      o.value = c.id; o.textContent = c.name;
-      sel.appendChild(o);
+    list.forEach(function (o) {
+      var opt = document.createElement("option");
+      opt.value = o.id; opt.textContent = o.name;
+      sel.appendChild(opt);
     });
+    var add = document.createElement("option");
+    add.value = NEW_OPT; add.textContent = newLabel;
+    sel.appendChild(add);
+    if (keep) sel.value = keep;
+  }
+  function fillCats() { fillSelect($("cat"), CATS, "+ New category…"); }
+  function fillLegs() { fillSelect($("leg"), LEGS, "+ New leg…"); }
+
+  function slug(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
+  }
+
+  function addCategory() {
+    var name = (prompt("New category name") || "").trim();
+    if (!name) { $("cat").value = lastCat; return; }
+    var id = "cat_" + slug(name) + "_" + Date.now();
+    CATS.push({ id: id, name: name, color: nextColor(), custom: true });
+    saveCustom();
+    fillCats();
+    $("cat").value = id;
+    lastCat = id;
+  }
+
+  function addLeg() {
+    var name = (prompt("New leg name — e.g. a place or trip segment") || "").trim();
+    if (!name) { $("leg").value = lastLeg; return; }
+    var id = "leg_" + slug(name) + "_" + Date.now();
+    LEGS.push({ id: id, name: name, custom: true });
+    saveCustom();
+    fillLegs();
+    $("leg").value = id;
+    lastLeg = id;
   }
 
   function setCur(c) {
@@ -648,6 +726,8 @@
       $("date").value = new Date().toISOString().slice(0, 10);
       $("leg").value = "thailand";
     }
+    lastCat = $("cat").value;
+    lastLeg = $("leg").value;
     showConv();
     $("sheet").hidden = false;
     if (!item) setTimeout(function () { $("amount").focus(); }, 120);
@@ -739,6 +819,7 @@
 
   load();
   fillCats();
+  fillLegs();
   render();
 
   $("add").addEventListener("click", function () { open(null); });
@@ -750,12 +831,22 @@
   $("curThb").addEventListener("click", function () { setCur("thb"); });
   $("curIls").addEventListener("click", function () { setCur("ils"); });
   $("amount").addEventListener("input", showConv);
+  $("cat").addEventListener("change", function () {
+    if (this.value === NEW_OPT) addCategory(); else lastCat = this.value;
+  });
+  $("leg").addEventListener("change", function () {
+    if (this.value === NEW_OPT) addLeg(); else lastLeg = this.value;
+  });
 
   $("exportCsv").addEventListener("click", function () {
     download("thailand-expenses.csv", toCsv(), "text/csv");
   });
   $("backup").addEventListener("click", function () {
-    download("thailand-backup.json", JSON.stringify({ rate: rate, start: tripStart, items: items }, null, 2), "application/json");
+    download("thailand-backup.json", JSON.stringify({
+      rate: rate, start: tripStart, items: items,
+      cats: CATS.filter(function (c) { return c.custom; }),
+      legs: LEGS.filter(function (l) { return l.custom; })
+    }, null, 2), "application/json");
   });
   $("copyNote").addEventListener("click", function () {
     var text = toNote();
@@ -781,6 +872,9 @@
           items = d.items;
           if (d.rate > 0) { rate = d.rate; localStorage.setItem(RATE_KEY, String(rate)); }
           if (d.start) { tripStart = d.start; localStorage.setItem(START_KEY, tripStart); }
+          if (d.cats) mergeCats(d.cats);
+          if (d.legs) mergeLegs(d.legs);
+          saveCustom(); fillCats(); fillLegs();
           save(); render();
           toast("Restored " + items.length + " entries");
         } catch (e) { toast("That file isn't a Baht backup"); }

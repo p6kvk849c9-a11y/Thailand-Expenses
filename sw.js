@@ -2,7 +2,7 @@
    Caches the app shell so the page opens with no connection.
    Bump CACHE when you change any shell file. User data lives in
    localStorage and is never touched here. */
-var CACHE = "baht-v2";
+var CACHE = "baht-v3";
 var SHELL = [
   "./",
   "./index.html",
